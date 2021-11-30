@@ -9,6 +9,21 @@ import warnings
 warnings.filterwarnings('ignore')
 import copy
 
+class FE(nn.Module):
+    def __init__(self,input_dim,output_dim):
+        self.input_dim = input_dim
+        self.output_dim = output_dim
+        super(FE,self).__init__()
+        self.h1 = 512
+        self.fc1 = nn.Linear(input_dim,self.h1)
+        self.bn1 = nn.BatchNorm1d(self.h1)
+        self.fc2 = nn.Linear(self.h1,self.output_dim)
+        self.bn2 = nn.BatchNorm1d(self.output_dim)
+
+    def forward(self,inp):
+        feat1 =  F.dropout(F.relu(self.bn1(self.fc1(inp))))  # 128-dim feature
+        feat2 = F.relu(self.bn2(self.fc2(feat1)))
+        return feat1,feat2
 
 class GCNClassifier(nn.Module):
     def __init__(self,input_dim,output_dim):
@@ -21,8 +36,7 @@ class GCNClassifier(nn.Module):
         self.conv2 = GCNConv(self.h1, self.h2)
         self.fc = nn.Linear(self.h2, self.output_dim)
         self.prelu = nn.PReLU()
-    def forward(self,data):
-        x, edge_index = data.x, data.edge_index
+    def forward(self,x, edge_index):
         feat1 = F.dropout(self.prelu(self.conv1(x, edge_index)))
         feat2 = F.dropout(self.prelu(self.conv2(feat1, edge_index)))
         logits = self.fc(feat2)
@@ -46,18 +60,18 @@ def f1_scores(y_pred, y_true):
         results[average] = f1_score(y_true.cpu().numpy(), predictions.cpu().numpy(), average=average)
     return results
 
-def test(inp,net):
+def test(x,inp,net):
     net.eval()
     with torch.no_grad():
-        test_out = net(inp)[inp.test_mask]
+        test_out = net(x,inp.edge_index)[inp.test_mask]
     pred = F.sigmoid(test_out)
     result = f1_scores(pred,inp.y[inp.test_mask])
     return result
 
-def test_tgt(inp, net):
+def test_tgt(x,inp, net):
     net.eval()
     with torch.no_grad():
-        test_out = net(inp)
+        test_out = net(x,inp.edge_index)
     pred = F.sigmoid(test_out)
     result = f1_scores(pred,inp.y)
     return result
@@ -76,7 +90,17 @@ for i in range(len(datasets)):
             tgt = CitationDomainData(f"data/{tgt_name}",name=tgt_name,use_pca=False)
             src_data = src[0].to(device)
             tgt_data = tgt[0].to(device)
-            inp_dim = src_data.x.shape[1]
+            # add pre-computed features
+            fe = FE(input_dim=src_data.x.shape[1],output_dim=128)
+            fe.load_state_dict(torch.load(f'checkpoint/{src_name}-{tgt_name}-fe-Attr-MMD.pt'))
+            fe = fe.to(device)
+            fe.eval()
+            with torch.no_grad():
+                _, src_feature_trans = fe(src_data.x)
+                _, tgt_feature_trans = fe(tgt_data.x)
+            src_feature_trans = src_feature_trans.to(device)
+            tgt_feature_trans = tgt_feature_trans.to(device)
+            inp_dim = src_feature_trans.shape[1]
             out_dim = src_data.y.shape[1]
             model = GCNClassifier(inp_dim, out_dim).to(device)
             criterion = nn.BCEWithLogitsLoss()
@@ -89,14 +113,14 @@ for i in range(len(datasets)):
             best_gcn_wts = copy.deepcopy(model.state_dict())
             for epoch in range(200):
                 optimizer.zero_grad()
-                out = model(src_data)
+                out = model(src_feature_trans, src_data.edge_index)
                 loss = criterion(out[src_data.train_mask], src_data.y[src_data.train_mask])
                 running_loss += loss
                 loss.backward()
                 optimizer.step()
                 if epoch%10==0 and epoch>0:
-                    test_res = test(src_data, model)
-                    tgt_res = test_tgt(tgt_data, model)
+                    test_res = test(src_feature_trans,src_data, model)
+                    tgt_res = test_tgt(tgt_feature_trans,tgt_data, model)
                     print(f"EPOCH:{epoch}, Loss:{running_loss/10}, Source: MacroF1={test_res['macro']}, MicroF1={test_res['micro']}, Target: MacroF1={tgt_res['macro']}, MicroF1={tgt_res['micro']}")
                     if tgt_res['macro']>best_macro:
                         best_macro = tgt_res['macro']
@@ -104,6 +128,6 @@ for i in range(len(datasets)):
                     if tgt_res['micro']>best_micro:
                         best_micro = tgt_res['micro']
                     running_loss = 0.
-            torch.save(best_gcn_wts, f"checkpoint/{src_name}-{tgt_name}-gcn.pt")
-            with open('重要的原始数据/gcn-results.txt', 'a+', encoding='utf8') as f:
-                f.write(src_name+'-'+tgt_name+','+'macro '+str(best_macro)+','+'micro '+str(best_micro)+"\n")
+            #torch.save(best_gcn_wts, f"checkpoint/{src_name}-{tgt_name}-gcn.pt")
+            #with open('gcn-results.txt','a+',encoding='utf8') as f:
+            #    f.write(src_name+'-'+tgt_name+','+'macro '+str(best_macro)+','+'micro '+str(best_micro)+"\n")
