@@ -2,6 +2,7 @@ import numpy as np
 import torch
 from typing import Optional, Sequence
 import torch.nn as nn
+from sklearn.metrics import precision_score,f1_score
 
 class EarlyStopping:
     """Early stops the training if validation loss doesn't improve after a given patience.
@@ -225,3 +226,25 @@ def _update_index_matrix(batch_size: int, index_matrix: Optional[torch.Tensor] =
                     index_matrix[i][j + batch_size] = -1. / float(batch_size * batch_size)
                     index_matrix[i + batch_size][j] = -1. / float(batch_size * batch_size)
     return index_matrix
+
+
+def f1_scores(y_pred, y_true):
+    """
+    multi-label classification F1
+    y_pred: prob  y_true 0/1
+    """
+    def predict(y_tru, y_pre):
+        top_k_list = y_tru.sum(1)
+        prediction = []
+        for i in range(y_tru.shape[0]):
+            pred_i = torch.zeros(y_tru.shape[1])
+            pred_i[torch.argsort(y_pre[i, :])[-int(top_k_list[i].item()):]] = 1
+            prediction.append(torch.reshape(pred_i, (1, -1)))
+        prediction = torch.cat(prediction, dim=0)
+        return prediction.to(torch.int32)
+    results = {}
+    predictions = predict(y_true, y_pred)
+    averages = ["micro", "macro"]
+    for average in averages:
+        results[average] = f1_score(y_true.cpu().numpy(), predictions.cpu().numpy(), average=average)
+    return results
