@@ -45,12 +45,20 @@ class CitationDomainData(InMemoryDataset):
             features = torch.from_numpy(features.todense()).to(torch.float)
         if not isinstance(adj,sp.coo_matrix):
             adj = sp.coo_matrix(adj)
+        # edge_index应该是COO格式的long型tensor
         indices = np.vstack([adj.row, adj.col])
         edge_index = torch.tensor(indices,dtype=torch.long)
+        # 计算ppmi矩阵（虽然以稀疏矩阵格式，但大量元素都有值，因为是概率矩阵）
+        A_k = AggTranProbMat(adj, 3)
+        PPMI_ = ComputePPMI(A_k)
+        n_PPMI_ = MyScaleSimMat(PPMI_)  # row normalized PPMI
+        n_PPMI_mx = sp.coo_matrix(n_PPMI_)
+        ppmi_edge_index = torch.tensor(np.vstack([n_PPMI_mx.row, n_PPMI_mx.col]),dtype=torch.long)
+        ppmi_edge_attr = torch.tensor(n_PPMI_mx.data, dtype=torch.float32)
         # label is float: to support BCEWithLogits loss
         y = torch.from_numpy(np.array(labels)).to(torch.float)
         data_list = []
-        graph = Data(x=features,edge_index=edge_index,y=y)
+        graph = Data(x=features, edge_index=edge_index, ppmi_edge_index=ppmi_edge_index, ppmi_edge_attr=ppmi_edge_attr,y=y)
         # train-val-test split
         random_node_indices = np.random.permutation(y.shape[0])
         train_size = int(len(random_node_indices) * 0.7)
@@ -60,10 +68,13 @@ class CitationDomainData(InMemoryDataset):
         test_node_indices = random_node_indices[train_size+val_size:]
         train_mask = torch.zeros([y.shape[0]], dtype=torch.uint8)
         train_mask[train_node_indices] = 1
+        train_mask = train_mask.bool() # mask 应该是bool类型
         val_mask = torch.zeros([y.shape[0]], dtype=torch.uint8)
         val_mask[val_node_indices] = 1
+        val_mask = val_mask.bool()
         test_mask = torch.zeros([y.shape[0]], dtype=torch.uint8)
         test_mask[test_node_indices] = 1
+        test_mask = test_mask.bool()
         graph.train_mask = train_mask
         graph.val_mask = val_mask
         graph.test_mask = test_mask
@@ -72,3 +83,46 @@ class CitationDomainData(InMemoryDataset):
         data_list.append(graph)
         data, slices = self.collate(data_list)
         torch.save((data, slices), self.processed_paths[0])
+
+def sparse_mx_to_torch_sparse_tensor(sparse_mx):
+    """Convert a scipy sparse matrix to a torch sparse tensor."""
+    sparse_mx = sparse_mx.tocoo().astype(np.float32)
+    indices = np.vstack((sparse_mx.row, sparse_mx.col))
+    print(indices)
+    values = torch.from_numpy(sparse_mx.data)
+    size = indices.shape[1]
+    return torch.sparse_coo_tensor(indices, values)
+
+
+def MyScaleSimMat(W):
+    '''L1 row norm of a matrix'''
+    rowsum = np.array(np.sum(W, axis=1), dtype=np.float32)
+    r_inv = np.power(rowsum, -1).flatten()
+    r_inv[np.isinf(r_inv)] = 0.
+    r_mat_inv = sp.diags(r_inv)
+    W = r_mat_inv.dot(W)
+    return W
+
+def AggTranProbMat(G, step):
+    '''aggregated K-step transition probality'''
+    G = MyScaleSimMat(G)
+    G = sp.csc_matrix.toarray(G)
+    A_k = G
+    A = G
+    for k in np.arange(2, step + 1):
+        A_k = np.matmul(A_k, G)
+        A = A + A_k / k
+    return A
+
+def ComputePPMI(A):
+    '''compute PPMI, given aggregated K-step transition probality matrix as input'''
+    np.fill_diagonal(A, 0)
+    A = MyScaleSimMat(A)
+    (p, q) = np.shape(A)
+    col = np.sum(A, axis=0)
+    col[col == 0] = 1
+    PPMI = np.log((float(p) * A) / col[None, :])
+    IdxNan = np.isnan(PPMI)
+    PPMI[IdxNan] = 0
+    PPMI[PPMI < 0] = 0
+    return PPMI

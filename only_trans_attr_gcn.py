@@ -6,7 +6,7 @@ import torch.nn.functional as F
 from torch_geometric.nn import GCNConv
 from sklearn.metrics import f1_score
 import warnings
-warnings.filterwarnings('ignore')
+warnings.filterwarnings('ignore',category=Warning)
 import copy
 
 class FE(nn.Module):
@@ -129,5 +129,5 @@ for i in range(len(datasets)):
                         best_micro = tgt_res['micro']
                     running_loss = 0.
             #torch.save(best_gcn_wts, f"checkpoint/{src_name}-{tgt_name}-gcn.pt")
-            #with open('gcn-results.txt','a+',encoding='utf8') as f:
-            #    f.write(src_name+'-'+tgt_name+','+'macro '+str(best_macro)+','+'micro '+str(best_micro)+"\n")
+            with open('gcn-only-trans-attr-results.txt','a+',encoding='utf8') as f:
+                f.write(src_name+'-'+tgt_name+','+'macro '+str(best_macro)+','+'micro '+str(best_micro)+"\n")

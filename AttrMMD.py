@@ -118,8 +118,8 @@ def train_test_loop(src_inp,src_name, tgt_inp, tgt_name, net,clf,criterion,batch
                     best_clf_wts = copy.deepcopy(clf.state_dict())
                 if test_result['micro']>best_microF1:
                     best_microF1 = test_result['micro']
-    torch.save(best_fe_wts, f'checkpoint/{src_name}-{tgt_name}-fe-Attr-MMD.pt')
-    torch.save(best_clf_wts, f'checkpoint/{src_name}-{tgt_name}-clf-Attr-MMD.pt')
+    #torch.save(best_fe_wts, f'checkpoint/{src_name}-{tgt_name}-fe-Attr-MMD.pt')
+    #torch.save(best_clf_wts, f'checkpoint/{src_name}-{tgt_name}-clf-Attr-MMD.pt')
     return best_macroF1, best_microF1
 
 
@@ -165,5 +165,5 @@ for i in range(len(datasets)):
             clf.apply(weight_init)
             clf = clf.to(device)
             best_macroF1, best_microF1 = train_test_loop(source_data, src_name, target_data, tgt_name, net, clf, criterion,batch_size,init_lr=lr)
-            with open("attr-mmd-results.txt",'a+',encoding='utf8') as f:
-                f.write(src_name+'-'+tgt_name+','+'macro '+str(best_macroF1)+','+'micro '+str(best_microF1)+"\n")
+            #with open("attr-mmd-results.txt",'a+',encoding='utf8') as f:
+            #    f.write(src_name+'-'+tgt_name+','+'macro '+str(best_macroF1)+','+'micro '+str(best_microF1)+"\n")

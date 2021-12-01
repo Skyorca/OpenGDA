@@ -10,6 +10,25 @@ warnings.filterwarnings('ignore')
 import copy
 
 
+class PPMIGCNClassifier(nn.Module):
+    def __init__(self,input_dim,output_dim):
+        self.input_dim = input_dim
+        self.output_dim = output_dim
+        super(PPMIGCNClassifier, self).__init__()
+        self.h1 = 512
+        self.h2 = 128
+        self.conv1 = GCNConv(self.input_dim, self.h1)
+        self.conv2 = GCNConv(self.h1, self.h2)
+        self.fc = nn.Linear(self.h2, self.output_dim)
+        self.prelu = nn.PReLU()
+    def forward(self,data):
+        x, edge_index, edge_attr = data.x, data.ppmi_edge_index, data.ppmi_edge_attr
+        feat1 = F.dropout(self.prelu(self.conv1(x, edge_index,edge_weight=edge_attr)))
+        feat2 = F.dropout(self.prelu(self.conv2(feat1, edge_index, edge_weight=edge_attr)))
+        logits = self.fc(feat2)
+        return logits
+
+
 class GCNClassifier(nn.Module):
     def __init__(self,input_dim,output_dim):
         self.input_dim = input_dim
@@ -78,7 +97,10 @@ for i in range(len(datasets)):
             tgt_data = tgt[0].to(device)
             inp_dim = src_data.x.shape[1]
             out_dim = src_data.y.shape[1]
-            model = GCNClassifier(inp_dim, out_dim).to(device)
+            # if use adj
+            #model = GCNClassifier(inp_dim, out_dim).to(device)
+            #if use ppmi
+            model = PPMIGCNClassifier(inp_dim, out_dim).to(device)
             criterion = nn.BCEWithLogitsLoss()
             optimizer = torch.optim.Adam(model.parameters(), lr=0.01, weight_decay=5e-4)
             model.zero_grad()
@@ -90,7 +112,12 @@ for i in range(len(datasets)):
             for epoch in range(200):
                 optimizer.zero_grad()
                 out = model(src_data)
-                loss = criterion(out[src_data.train_mask], src_data.y[src_data.train_mask])
+                clf_loss = criterion(out[src_data.train_mask], src_data.y[src_data.train_mask])
+                #target_probs = F.softmax(out[src_data.train_mask], dim=-1)
+                #target_probs = torch.clamp(target_probs, min=1e-9, max=1.0)
+                #entropy_loss = torch.mean(torch.sum(-target_probs * torch.log(target_probs), dim=-1))
+                #loss = clf_loss + (epoch/200)*0.01*entropy_loss
+                loss = clf_loss
                 running_loss += loss
                 loss.backward()
                 optimizer.step()
@@ -104,6 +131,6 @@ for i in range(len(datasets)):
                     if tgt_res['micro']>best_micro:
                         best_micro = tgt_res['micro']
                     running_loss = 0.
-            torch.save(best_gcn_wts, f"checkpoint/{src_name}-{tgt_name}-gcn.pt")
-            with open('重要的原始数据/gcn-results.txt', 'a+', encoding='utf8') as f:
-                f.write(src_name+'-'+tgt_name+','+'macro '+str(best_macro)+','+'micro '+str(best_micro)+"\n")
+            torch.save(best_gcn_wts, f"checkpoint/{src_name}-{tgt_name}-PPMI-gcn.pt")
+            #with open('重要的原始数据/gcn-PPMI-results.txt', 'a+', encoding='utf8') as f:
+            #    f.write(src_name+'-'+tgt_name+','+'macro '+str(best_macro)+','+'micro '+str(best_micro)+"\n")
