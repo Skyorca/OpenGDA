@@ -9,13 +9,13 @@ import copy
 from dataUtils import *
 from modelUtils import *
 
-class GCNClassifier(nn.Module):
+class PPMIGCNClassifier(nn.Module):
     def __init__(self,input_dim,output_dim):
         self.input_dim = input_dim
         self.output_dim = output_dim
-        super(GCNClassifier, self).__init__()
-        self.h1 = 512
-        self.h2 = 128
+        super(PPMIGCNClassifier, self).__init__()
+        self.h1 = 128
+        self.h2 = 16
         self.conv1 = GCNConv(self.input_dim, self.h1)
         self.conv2 = GCNConv(self.h1, self.h2)
         self.fc = nn.Linear(self.h2, self.output_dim)
@@ -24,6 +24,24 @@ class GCNClassifier(nn.Module):
         x, edge_index, edge_attr = data.x, data.ppmi_edge_index, data.ppmi_edge_attr
         feat1 = F.dropout(self.prelu(self.conv1(x, edge_index,edge_weight=edge_attr)))
         feat2 = F.dropout(self.prelu(self.conv2(feat1, edge_index, edge_weight=edge_attr)))
+        logits = self.fc(feat2)
+        return logits
+
+class GCNClassifier(nn.Module):
+    def __init__(self,input_dim,output_dim):
+        self.input_dim = input_dim
+        self.output_dim = output_dim
+        super(GCNClassifier, self).__init__()
+        self.h1 = 128
+        self.h2 = 16
+        self.conv1 = GCNConv(self.input_dim, self.h1)
+        self.conv2 = GCNConv(self.h1, self.h2)
+        self.fc = nn.Linear(self.h2, self.output_dim)
+        self.prelu = nn.PReLU()
+    def forward(self,data):
+        x, edge_index = data.x, data.ppmi_edge_index
+        feat1 = F.dropout(self.prelu(self.conv1(x, edge_index)))
+        feat2 = F.dropout(self.prelu(self.conv2(feat1, edge_index)))
         logits = self.fc(feat2)
         return logits
 
@@ -53,17 +71,10 @@ def test(inp,net):
     result = f1_scores(pred,inp.y[inp.test_mask])
     return result
 
-def test_tgt(inp, net):
-    net.eval()
-    with torch.no_grad():
-        test_out = net(inp)
-    pred = F.sigmoid(test_out)
-    result = f1_scores(pred,inp.y)
-    return result
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print(device)
-datasets = ["acmv9","citationv1","dblpv7"]
+datasets = ["dblpv7","acmv9","citationv1"]
 for i in range(len(datasets)):
     name = datasets[i]
     print(name)
@@ -83,7 +94,8 @@ for i in range(len(datasets)):
     for epoch in range(200):
         optimizer.zero_grad()
         out = model(src_data)
-        loss = criterion(out[src_data.train_mask], src_data.y[src_data.train_mask])
+        train_mask = src_data.train_mask+src_data.val_mask
+        loss = criterion(out[train_mask], src_data.y[train_mask])
         running_loss += loss
         loss.backward()
         optimizer.step()

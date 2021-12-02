@@ -108,7 +108,7 @@ def f1_scores(y_pred, y_true):
         results[average] = f1_score(y_true.cpu().numpy(), predictions.cpu().numpy(), average=average)
     return results
 
-def test(inp,gcn, ppmi_gcn, attn, clf, mask):
+def test(inp,gcn, ppmi_gcn, attn, clf, mask, attn_mode):
     gcn.eval()
     ppmi_gcn.eval()
     attn.eval()
@@ -116,63 +116,99 @@ def test(inp,gcn, ppmi_gcn, attn, clf, mask):
     with torch.no_grad():
         l_o = gcn(inp)[mask]
         g_o = ppmi_gcn(inp)[mask]
-        attn_o = attn([inp.x[mask],l_o,g_o])
+        if attn_mode==1:
+            attn_o = attn([l_o,g_o])
+        else:
+            attn_o = attn([inp.x[mask],l_o,g_o])
         test_out = clf(attn_o)
     pred = F.sigmoid(test_out)
     result = f1_scores(pred,inp.y[mask])
     return result
 
+def test_tgt(inp,gcn, ppmi_gcn, attn, clf,attn_mode):
+    gcn.eval()
+    ppmi_gcn.eval()
+    attn.eval()
+    clf.eval()
+    with torch.no_grad():
+        l_o = gcn(inp)
+        g_o = ppmi_gcn(inp)
+        if attn_mode==1:
+            attn_o = attn([l_o,g_o])
+        elif attn_mode==2:
+            attn_o = attn([inp.x,l_o,g_o])
+        else:
+            pass
+        test_out = clf(attn_o)
+    pred = F.sigmoid(test_out)
+    result = f1_scores(pred,inp.y)
+    return result
+
+
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print(device)
-datasets = ["dblpv7","acmv9","citationv1"]
+attn_mode = 2
+datasets = ["acmv9","citationv1","dblpv7"]
 for i in range(len(datasets)):
-    src_name = datasets[i]
-    print(src_name)
-    src = CitationDomainData(f"data/{src_name}",name=src_name,use_pca=False)
-    src_data = src[0].to(device)
-    inp_dim = src_data.x.shape[1]
-    out_dim = src_data.y.shape[1]
-    gcn = GCN(inp_dim, 128).to(device)
-    ppmi_gcn = PPMIGCN(inp_dim, 128).to(device)
-    #attn = Attention(128).to(device)
-    attn = Attention2(inp_dim,128).to(device)
-    clf = Classifier(128,out_dim).to(device)
-    models = [gcn, ppmi_gcn, attn, clf]
-    criterion = nn.BCEWithLogitsLoss()
-    params = itertools.chain(*[model.parameters() for model in models])
-    optimizer = torch.optim.Adam(params, lr=0.02, weight_decay=5e-4)
-    gcn.zero_grad()
-    ppmi_gcn.zero_grad()
-    attn.zero_grad()
-    clf.zero_grad()
-    gcn.train()
-    ppmi_gcn.train()
-    attn.train()
-    clf.train()
-    running_loss = 0.
-    best_macro = 0.
-    best_micro = 0.
-    for epoch in range(300):
-        optimizer.zero_grad()
-        l_out = gcn(src_data)
-        g_out = ppmi_gcn(src_data)
-        attn_out = attn([src_data.x, l_out, g_out])
-        out = clf(attn_out)
-        train_mask = src_data.train_mask+src_data.val_mask
-        clf_loss = criterion(out[train_mask], src_data.y[train_mask])
-        loss = clf_loss
-        running_loss += loss
-        loss.backward()
-        optimizer.step()
-        if epoch%10==0 and epoch>0:
-            test_res = test(src_data, gcn, ppmi_gcn, attn, clf, mask=src_data.test_mask)
-            print(f"EPOCH:{epoch}, Loss:{running_loss/10}, Source: MacroF1={test_res['macro']}, MicroF1={test_res['micro']}")
-            if test_res['macro']>best_macro:
-                best_macro = test_res['macro']
-                #best_gcn_wts = copy.deepcopy(model.state_dict())
-            if test_res['micro']>best_micro:
-                best_micro = test_res['micro']
+    for j in range(i+1,len(datasets)):
+        dual_ds = [(i,j),(j,i)]
+        for ds in dual_ds:
+            src_name = datasets[ds[0]]
+            tgt_name = datasets[ds[1]]
+            print(src_name, tgt_name)
+            src = CitationDomainData(f"data/{src_name}",name=src_name,use_pca=False)
+            tgt = CitationDomainData(f"data/{tgt_name}",name=tgt_name,use_pca=False)
+            src_data = src[0].to(device)
+            tgt_data = tgt[0].to(device)
+            inp_dim = src_data.x.shape[1]
+            out_dim = src_data.y.shape[1]
+            gcn = GCN(inp_dim, 128).to(device)
+            ppmi_gcn = PPMIGCN(inp_dim, 128).to(device)
+            if attn_mode==1:
+                attn = Attention(128).to(device)
+            else:
+                attn = Attention2(inp_dim,128).to(device)
+            clf = Classifier(128,out_dim).to(device)
+            models = [gcn, ppmi_gcn, attn, clf]
+            criterion = nn.BCEWithLogitsLoss()
+            params = itertools.chain(*[model.parameters() for model in models])
+            optimizer = torch.optim.Adam(params, lr=0.02, weight_decay=5e-4)
+            gcn.zero_grad()
+            ppmi_gcn.zero_grad()
+            attn.zero_grad()
+            clf.zero_grad()
+            gcn.train()
+            ppmi_gcn.train()
+            attn.train()
+            clf.train()
             running_loss = 0.
-    #torch.save(best_gcn_wts, f"checkpoint/{src_name}-{tgt_name}-PPMI-gcn.pt")
-    #with open('重要的原始数据/gcn-PPMI-results.txt', 'a+', encoding='utf8') as f:
-    #    f.write(src_name+'-'+tgt_name+','+'macro '+str(best_macro)+','+'micro '+str(best_micro)+"\n")
+            best_macro = 0.
+            best_micro = 0.
+            for epoch in range(200):
+                optimizer.zero_grad()
+                l_out = gcn(src_data)
+                g_out = ppmi_gcn(src_data)
+                if attn_mode==1:
+                    attn_out = attn([l_out, g_out])
+                else:
+                    attn_out = attn([src_data.x, l_out, g_out])
+                out = clf(attn_out)
+                train_mask = src_data.train_mask+src_data.val_mask
+                clf_loss = criterion(out[train_mask], src_data.y[train_mask])
+                loss = clf_loss
+                running_loss += loss
+                loss.backward()
+                optimizer.step()
+                if epoch%10==0 and epoch>0:
+                    test_res = test(src_data, gcn, ppmi_gcn, attn, clf, mask=src_data.test_mask, attn_mode=attn_mode)
+                    tgt_res = test_tgt(tgt_data, gcn, ppmi_gcn, attn, clf, attn_mode=attn_mode)
+                    print(f"EPOCH:{epoch}, Loss:{running_loss/10}, Source: MacroF1={test_res['macro']}, MicroF1={test_res['micro']}, Target: MacroF1={tgt_res['macro']}, MicroF1={tgt_res['micro']}")
+                    if tgt_res['macro']>best_macro:
+                        best_macro = tgt_res['macro']
+                        #best_gcn_wts = copy.deepcopy(model.state_dict())
+                    if tgt_res['micro']>best_micro:
+                        best_micro = tgt_res['micro']
+                    running_loss = 0.
+            #torch.save(best_gcn_wts, f"checkpoint/{src_name}-{tgt_name}-PPMI-gcn.pt")
+            with open('重要的原始数据/gcn-ATTN-results.txt', 'a+', encoding='utf8') as f:
+                f.write(src_name+'-'+tgt_name+','+'macro '+str(best_macro)+','+'micro '+str(best_micro)+"\n")

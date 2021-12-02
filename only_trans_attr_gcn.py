@@ -30,8 +30,8 @@ class GCNClassifier(nn.Module):
         self.input_dim = input_dim
         self.output_dim = output_dim
         super(GCNClassifier, self).__init__()
-        self.h1 = 512
-        self.h2 = 128
+        self.h1 = 128
+        self.h2 = 16
         self.conv1 = GCNConv(self.input_dim, self.h1)
         self.conv2 = GCNConv(self.h1, self.h2)
         self.fc = nn.Linear(self.h2, self.output_dim)
@@ -41,6 +41,25 @@ class GCNClassifier(nn.Module):
         feat2 = F.dropout(self.prelu(self.conv2(feat1, edge_index)))
         logits = self.fc(feat2)
         return logits
+
+class PPMIGCNClassifier(nn.Module):
+    def __init__(self,input_dim,output_dim):
+        self.input_dim = input_dim
+        self.output_dim = output_dim
+        super(PPMIGCNClassifier, self).__init__()
+        self.h1 = 128
+        self.h2 = 16
+        self.conv1 = GCNConv(self.input_dim, self.h1)
+        self.conv2 = GCNConv(self.h1, self.h2)
+        self.fc = nn.Linear(self.h2, self.output_dim)
+        self.prelu = nn.PReLU()
+    def forward(self,data):
+        x, edge_index, edge_attr = data.x, data.ppmi_edge_index, data.ppmi_edge_attr
+        feat1 = F.dropout(self.prelu(self.conv1(x, edge_index,edge_weight=edge_attr)))
+        feat2 = F.dropout(self.prelu(self.conv2(feat1, edge_index, edge_weight=edge_attr)))
+        logits = self.fc(feat2)
+        return logits
+
 
 def f1_scores(y_pred, y_true):
     """ y_pred: prob  y_true 0/1 """
@@ -95,6 +114,8 @@ for i in range(len(datasets)):
             fe.load_state_dict(torch.load(f'checkpoint/{src_name}-{tgt_name}-fe-Attr-MMD.pt'))
             fe = fe.to(device)
             fe.eval()
+            # 这里可以有两种方法使用迁移好的属性
+            # 使用最后一层输出（mmd距离较大），或者两个输出层拼接（mmd距离较小）
             with torch.no_grad():
                 _, src_feature_trans = fe(src_data.x)
                 _, tgt_feature_trans = fe(tgt_data.x)
