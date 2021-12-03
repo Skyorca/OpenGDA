@@ -49,7 +49,10 @@ class GCNClassifier(nn.Module):
 
 
 def f1_scores(y_pred, y_true):
-    """ y_pred: prob  y_true 0/1 """
+    """
+    Ref  github/ACDNE (pytorch ver)
+    y_pred: prob  y_true 0/1
+    """
     def predict(y_tru, y_pre):
         top_k_list = y_tru.sum(1)
         prediction = []
@@ -81,6 +84,8 @@ def test_tgt(inp, net):
     pred = F.sigmoid(test_out)
     result = f1_scores(pred,inp.y)
     return result
+
+
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print(device)
@@ -115,7 +120,7 @@ for i in range(len(datasets)):
                 out = model(src_data)
                 train_mask = src_data.train_mask+src_data.val_mask
                 clf_loss = criterion(out[train_mask], src_data.y[train_mask])
-                target_probs = F.softmax(out[src_data.train_mask], dim=-1)
+                target_probs = F.softmax(out[tgt_data.train_mask], dim=-1)
                 target_probs = torch.clamp(target_probs, min=1e-9, max=1.0)
                 entropy_loss = torch.mean(torch.sum(-target_probs * torch.log(target_probs), dim=-1))
                 loss = clf_loss + (epoch/200)*0.01*entropy_loss

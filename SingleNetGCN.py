@@ -71,6 +71,17 @@ def test(inp,net):
     result = f1_scores(pred,inp.y[inp.test_mask])
     return result
 
+def net_pro_loss(emb, edge_index, edge_attr):
+    """
+       Ref  github/ACDNE (pytorch ver)
+       保持网络结构的损失
+       emb  节点表达矩阵   a 图的邻接矩阵/ppmi矩阵等COO格式的tensor
+    """
+    a = torch.sparse_coo_tensor(indices=edge_index, values=edge_attr)
+    r = torch.sum(emb*emb, 1)
+    r = torch.reshape(r, (-1, 1))
+    dis = r-2*torch.matmul(emb, emb.T)+r.T
+    return torch.mean(torch.sum(torch.sparse.mm(a,dis), 1))
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print(device)
@@ -91,12 +102,13 @@ for i in range(len(datasets)):
     best_macro = 0.
     best_micro = 0.
     #best_gcn_wts = copy.deepcopy(model.state_dict())
-    for epoch in range(200):
+    for epoch in range(500):
         optimizer.zero_grad()
         out = model(src_data)
         train_mask = src_data.train_mask+src_data.val_mask
         loss = criterion(out[train_mask], src_data.y[train_mask])
-        running_loss += loss
+        pro_loss = net_pro_loss(out, src_data.ppmi_edge_index, src_data.ppmi_edge_attr)
+        running_loss += (loss+1e-6*pro_loss)
         loss.backward()
         optimizer.step()
         if epoch%10==0 and epoch>0:

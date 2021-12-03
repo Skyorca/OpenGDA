@@ -8,6 +8,7 @@ from sklearn.metrics import f1_score
 import warnings
 warnings.filterwarnings('ignore',category=Warning)
 import copy
+import itertools
 
 class FE(nn.Module):
     def __init__(self,input_dim,output_dim):
@@ -25,43 +26,44 @@ class FE(nn.Module):
         feat2 = F.relu(self.bn2(self.fc2(feat1)))
         return feat1,feat2
 
-class GCNClassifier(nn.Module):
+class GCN(nn.Module):
     def __init__(self,input_dim,output_dim):
         self.input_dim = input_dim
         self.output_dim = output_dim
-        super(GCNClassifier, self).__init__()
+        super(GCN, self).__init__()
         self.h1 = 128
         self.h2 = 16
         self.conv1 = GCNConv(self.input_dim, self.h1)
         self.conv2 = GCNConv(self.h1, self.h2)
-        self.fc = nn.Linear(self.h2, self.output_dim)
         self.prelu = nn.PReLU()
-    def forward(self,x, data):
-        """x是输入图网络之前就被拼接or计算好"""
-        edge_index = data.edge_index
+    def forward(self,x, edge_index):
         feat1 = F.dropout(self.prelu(self.conv1(x, edge_index)))
         feat2 = F.dropout(self.prelu(self.conv2(feat1, edge_index)))
-        logits = self.fc(feat2)
-        return logits
+        return feat2
 
-class PPMIGCNClassifier(nn.Module):
+class PPMIGCN(nn.Module):
     def __init__(self,input_dim,output_dim):
         self.input_dim = input_dim
         self.output_dim = output_dim
-        super(PPMIGCNClassifier, self).__init__()
+        super(PPMIGCN, self).__init__()
         self.h1 = 128
         self.h2 = 16
         self.conv1 = GCNConv(self.input_dim, self.h1)
         self.conv2 = GCNConv(self.h1, self.h2)
-        self.fc = nn.Linear(self.h2, self.output_dim)
         self.prelu = nn.PReLU()
-    def forward(self,x,data):
-        edge_index, edge_attr = data.ppmi_edge_index, data.ppmi_edge_attr
+    def forward(self,data):
+        x, edge_index, edge_attr = data.x, data.ppmi_edge_index, data.ppmi_edge_attr
         feat1 = F.dropout(self.prelu(self.conv1(x, edge_index,edge_weight=edge_attr)))
         feat2 = F.dropout(self.prelu(self.conv2(feat1, edge_index, edge_weight=edge_attr)))
-        logits = self.fc(feat2)
-        return logits
+        return feat2
 
+class Classifier(nn.Module):
+    def __init__(self, in_channels, out_channels):
+        super(Classifier, self).__init__()
+        self.fc = nn.Linear(in_channels,out_channels)
+    def forward(self, x):
+        logits = self.fc(x)
+        return logits
 
 def f1_scores(y_pred, y_true):
     """ y_pred: prob  y_true 0/1 """
@@ -81,26 +83,31 @@ def f1_scores(y_pred, y_true):
         results[average] = f1_score(y_true.cpu().numpy(), predictions.cpu().numpy(), average=average)
     return results
 
-def test(x,inp,net):
-    net.eval()
+def test(x,inp,gcn, clf):
+    gcn.eval()
+    clf.eval()
+    mask = inp.test_mask
     with torch.no_grad():
-        test_out = net(x,inp)[inp.test_mask]
-    pred = F.sigmoid(test_out)
-    result = f1_scores(pred,inp.y[inp.test_mask])
+        gcn_out = gcn(inp)
+        feat = torch.hstack([gcn_out, x])
+        out = clf(feat)[mask]
+    pred = F.sigmoid(out)
+    result = f1_scores(pred,inp.y[mask])
     return result
 
-def test_tgt(x,inp, net):
-    net.eval()
+def test_tgt(x,inp, gcn ,clf):
+    gcn.eval()
+    clf.eval()
     with torch.no_grad():
-        test_out = net(x,inp)
-    pred = F.sigmoid(test_out)
+        gcn_out = gcn(inp)
+        feat = torch.hstack([gcn_out, x])
+        out = clf(feat)
+    pred = F.sigmoid(out)
     result = f1_scores(pred,inp.y)
     return result
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print(device)
-version = "r1"  # r1 r2 keep
-
 datasets = ["acmv9","citationv1","dblpv7"]
 for i in range(len(datasets)):
     for j in range(i+1,len(datasets)):
@@ -120,49 +127,47 @@ for i in range(len(datasets)):
             fe.eval()
             # 这里可以有两种方法使用迁移好的属性
             # 使用最后一层输出（mmd距离较大），或者两个输出层拼接（mmd距离较小）
-            if version=="r1":
-                with torch.no_grad():
-                    _, src_feature_trans = fe(src_data.x)
-                    _, tgt_feature_trans = fe(tgt_data.x)
-                src_feature_trans = src_feature_trans.to(device)
-                tgt_feature_trans = tgt_feature_trans.to(device)
-            elif version=="r2":
-                with torch.no_grad():
-                    src_feature_trans1, src_feature_trans2 = fe(src_data.x)
-                    tgt_feature_trans1, tgt_feature_trans2 = fe(tgt_data.x)
-                src_feature_trans = torch.hstack([src_feature_trans1, src_feature_trans2])
-                tgt_feature_trans = torch.hstack([tgt_feature_trans1, tgt_feature_trans2])
-                src_feature_trans = src_feature_trans.to(device)
-                tgt_feature_trans = tgt_feature_trans.to(device)
-            inp_dim = src_feature_trans.shape[1]
-            out_dim = src_data.y.shape[1]
-            model = GCNClassifier(inp_dim, out_dim).to(device)
-            #model = PPMIGCNClassifier(inp_dim, out_dim).to(device)
+            with torch.no_grad():
+                src_feature_trans1, src_feature_trans2 = fe(src_data.x)
+                tgt_feature_trans1, tgt_feature_trans2 = fe(tgt_data.x)
+            src_ext_feat = torch.hstack([src_feature_trans1, src_feature_trans2])
+            tgt_ext_feat = torch.hstack([tgt_feature_trans1, tgt_feature_trans2])
+            src_ext_feat = src_ext_feat.to(device)
+            tgt_ext_feat = tgt_ext_feat.to(device)
+            gcn_inp_dim = src_data.x.shape[1]
+            gcn_out_dim = 16
+            n_labels = src_data.y.shape[1]
+            gcn = PPMIGCN(gcn_inp_dim, gcn_out_dim).to(device)
+            clf = Classifier(gcn_out_dim+src_ext_feat.shape[1], n_labels).to(device)
             criterion = nn.BCEWithLogitsLoss()
-            optimizer = torch.optim.Adam(model.parameters(), lr=0.02, weight_decay=5e-4)
-            model.zero_grad()
-            model.train()
+            models = [gcn, clf]
+            params = itertools.chain(*[model.parameters() for model in models])
+            optimizer = torch.optim.Adam(params, lr=0.02, weight_decay=5e-4)
+            gcn.zero_grad()
+            gcn.train()
+            clf.zero_grad()
+            clf.train()
             running_loss = 0.
             best_macro = 0.
             best_micro = 0.
-            best_gcn_wts = copy.deepcopy(model.state_dict())
             for epoch in range(200):
                 optimizer.zero_grad()
-                out = model(src_feature_trans, src_data)
-                loss = criterion(out[src_data.train_mask], src_data.y[src_data.train_mask])
+                gcn_out = gcn(src_data)
+                feat = torch.hstack([gcn_out, src_ext_feat])
+                out = clf(feat)
+                src_train_mask = src_data.train_mask+src_data.val_mask
+                loss = criterion(out[src_train_mask], src_data.y[src_train_mask])
                 running_loss += loss
                 loss.backward()
                 optimizer.step()
                 if epoch%10==0 and epoch>0:
-                    test_res = test(src_feature_trans,src_data, model)
-                    tgt_res = test_tgt(tgt_feature_trans,tgt_data, model)
+                    test_res = test(src_ext_feat,src_data, gcn, clf)
+                    tgt_res = test_tgt(tgt_ext_feat,tgt_data, gcn, clf)
                     print(f"EPOCH:{epoch}, Loss:{running_loss/10}, Source: MacroF1={test_res['macro']}, MicroF1={test_res['micro']}, Target: MacroF1={tgt_res['macro']}, MicroF1={tgt_res['micro']}")
                     if tgt_res['macro']>best_macro:
                         best_macro = tgt_res['macro']
-                        best_gcn_wts = copy.deepcopy(model.state_dict())
                     if tgt_res['micro']>best_micro:
                         best_micro = tgt_res['micro']
                     running_loss = 0.
-            #torch.save(best_gcn_wts, f"checkpoint/{src_name}-{tgt_name}-gcn.pt")
-            with open('gcn-only-trans-attr-results.txt','a+',encoding='utf8') as f:
+            with open('gcn-only-trans-attr-results2.txt','a+',encoding='utf8') as f:
                 f.write(src_name+'-'+tgt_name+','+'macro '+str(best_macro)+','+'micro '+str(best_micro)+"\n")

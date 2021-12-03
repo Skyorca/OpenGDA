@@ -15,8 +15,8 @@ class PPMIGCN(nn.Module):
         self.input_dim = input_dim
         self.output_dim = output_dim
         super(PPMIGCN, self).__init__()
-        self.h1 = 512
-        self.h2 = 128
+        self.h1 = 128
+        self.h2 = 16
         self.conv1 = GCNConv(self.input_dim, self.h1)
         self.conv2 = GCNConv(self.h1, self.h2)
         self.prelu = nn.PReLU()
@@ -32,8 +32,8 @@ class GCN(nn.Module):
         self.input_dim = input_dim
         self.output_dim = output_dim
         super(GCN, self).__init__()
-        self.h1 = 512
-        self.h2 = 128
+        self.h1 = 128
+        self.h2 = 16
         self.conv1 = GCNConv(self.input_dim, self.h1)
         self.conv2 = GCNConv(self.h1, self.h2)
         self.prelu = nn.PReLU()
@@ -88,6 +88,18 @@ class Classifier(nn.Module):
         logits = self.fc(x)
         return logits
 
+def encode_data(data,gcn,ppmi_gcn,attn,clf,attn_mode):
+    """ 数据从输入到输出的映射
+        data: src/tgt 是Data类
+    """
+    l_out = gcn(data)
+    g_out = ppmi_gcn(data)
+    if attn_mode==1:
+        attn_out = attn([l_out, g_out])
+    else:
+        attn_out = attn([data.x, l_out, g_out])
+    out = clf(attn_out)
+    return out
 
 
 def f1_scores(y_pred, y_true):
@@ -147,7 +159,10 @@ def test_tgt(inp,gcn, ppmi_gcn, attn, clf,attn_mode):
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print(device)
+### model mode selection ###
 attn_mode = 2
+use_entropy_loss = True
+############################
 datasets = ["acmv9","citationv1","dblpv7"]
 for i in range(len(datasets)):
     for j in range(i+1,len(datasets)):
@@ -162,13 +177,13 @@ for i in range(len(datasets)):
             tgt_data = tgt[0].to(device)
             inp_dim = src_data.x.shape[1]
             out_dim = src_data.y.shape[1]
-            gcn = GCN(inp_dim, 128).to(device)
-            ppmi_gcn = PPMIGCN(inp_dim, 128).to(device)
+            gcn = GCN(inp_dim, 16).to(device)
+            ppmi_gcn = PPMIGCN(inp_dim, 16).to(device)
             if attn_mode==1:
-                attn = Attention(128).to(device)
+                attn = Attention(16).to(device)
             else:
-                attn = Attention2(inp_dim,128).to(device)
-            clf = Classifier(128,out_dim).to(device)
+                attn = Attention2(inp_dim,16).to(device)
+            clf = Classifier(16,out_dim).to(device)
             models = [gcn, ppmi_gcn, attn, clf]
             criterion = nn.BCEWithLogitsLoss()
             params = itertools.chain(*[model.parameters() for model in models])
@@ -186,16 +201,17 @@ for i in range(len(datasets)):
             best_micro = 0.
             for epoch in range(200):
                 optimizer.zero_grad()
-                l_out = gcn(src_data)
-                g_out = ppmi_gcn(src_data)
-                if attn_mode==1:
-                    attn_out = attn([l_out, g_out])
-                else:
-                    attn_out = attn([src_data.x, l_out, g_out])
-                out = clf(attn_out)
-                train_mask = src_data.train_mask+src_data.val_mask
-                clf_loss = criterion(out[train_mask], src_data.y[train_mask])
+                src_out = encode_data(src_data,gcn,ppmi_gcn,attn,clf,attn_mode)
+                src_train_mask = src_data.train_mask+src_data.val_mask
+                clf_loss = criterion(src_out[src_train_mask], src_data.y[src_train_mask])
                 loss = clf_loss
+                if use_entropy_loss:
+                    tgt_train_mask = tgt_data.train_mask + tgt_data.val_mask
+                    tgt_out = encode_data(tgt_data,gcn,ppmi_gcn,attn,clf,attn_mode)
+                    target_probs = F.softmax(tgt_out[tgt_train_mask], dim=-1)
+                    target_probs = torch.clamp(target_probs, min=1e-9, max=1.0)
+                    entropy_loss = torch.mean(torch.sum(-target_probs * torch.log(target_probs), dim=-1))
+                    loss += (epoch/200)*0.01*entropy_loss
                 running_loss += loss
                 loss.backward()
                 optimizer.step()
