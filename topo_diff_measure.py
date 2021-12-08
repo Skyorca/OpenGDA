@@ -29,4 +29,13 @@ sim2 = gk2.fit_transform([inp1, inp2, inp3])
 print(sim2)
 
 
-
+def graph_sim(adj1, adj2):
+    g1_ = nx.from_scipy_sparse_matrix(adj1)
+    g1_label = {pair[0]:pair[1] for pair in g1_.degree()}
+    g2_ = nx.from_scipy_sparse_matrix(adj2)
+    g2_label = {pair[0]:pair[1] for pair in g2_.degree()}
+    inp1 = Graph(adj1,node_labels=g1_label)
+    inp2 = Graph(adj2.edge_index,node_labels=g2_label)
+    gk = WeisfeilerLehman(n_iter=10, base_graph_kernel=VertexHistogram, normalize=True)
+    sim = gk.fit_transform([inp1, inp2])
+    print(sim)

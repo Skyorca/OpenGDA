@@ -248,3 +248,28 @@ def f1_scores(y_pred, y_true):
     for average in averages:
         results[average] = f1_score(y_true.cpu().numpy(), predictions.cpu().numpy(), average=average)
     return results
+
+
+def compute_dist(src_z:torch.Tensor, tgt_z:torch.Tensor):
+    if src_z.shape[0] != tgt_z.shape[0]:
+        size = min(src_z.shape[0],tgt_z.shape[0])
+        random_indices = np.random.permutation(size)
+        x = src_z[random_indices]
+        y = tgt_z[random_indices]
+    else:
+        x = src_z
+        y = tgt_z
+    sigmas = [
+        1e-6, 1e-5, 1e-4, 1e-3, 1e-2, 1e-1, 1, 5, 10, 15, 20, 25, 30, 35, 100,
+        1e3, 1e4, 1e5, 1e6
+    ]
+    kernels = []
+    for sigma in sigmas:
+        kernels.append(GaussianKernel(sigma=sigma))
+    attr_mmd = 0.
+    mmd = MultipleKernelMaximumMeanDiscrepancy(kernels=kernels)
+    bs = 64
+    for start in range(0,size,bs):
+        end = min(size-1,start+bs)
+        attr_mmd += mmd(x[start:end],y[start:end])
+    return attr_mmd

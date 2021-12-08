@@ -5,6 +5,8 @@ import torch
 import torch.nn as nn
 import scipy.sparse as sp
 import numpy as np
+import networkx as nx
+import random
 
 class CitationDomainData(InMemoryDataset):
     """
@@ -126,3 +128,29 @@ def ComputePPMI(A):
     PPMI[IdxNan] = 0
     PPMI[PPMI < 0] = 0
     return PPMI
+
+
+def disturb_network(adj):
+    g = nx.from_scipy_sparse_matrix(adj)
+    edges_1 = []
+    edges_2 = []
+    edges = g.edges
+    g_1 = nx.Graph()
+    g_2 = nx.Graph()
+    g_1.add_nodes_from(g.nodes)
+    g_2.add_nodes_from(g.nodes)
+    alpha_s = 0.8
+    alpha_c = 0.5
+    for edge in edges:
+        p = np.random.uniform(0,1)
+        if p>1-2*alpha_s+alpha_s*alpha_c and p<=1-alpha_s: edges_1.append(edge)
+        elif p>1-alpha_s and p<=1-alpha_s*alpha_c: edges_2.append(edge)
+        elif p>1-alpha_s*alpha_c:
+            edges_1.append(edge)
+            edges_2.append(edge)
+        else: continue
+    g_1.add_edges_from(edges_1)
+    g_2.add_edges_from(edges_2)
+    adj_1 = sp.coo_matrix(nx.to_scipy_sparse_matrix(g_1))
+    adj_2 = sp.coo_matrix(nx.to_scipy_sparse_matrix(g_2))
+    return adj_1, adj_2
