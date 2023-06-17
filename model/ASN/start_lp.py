@@ -1,0 +1,117 @@
+import sys
+sys.path.append("../..")
+import argparse
+import torch
+import numpy as np
+from evaluation.metric import evaluate_test_at_k
+from ASN_lp import ASN_LP
+from data.dataloader import dataloader
+from datetime import datetime
+
+
+parser = argparse.ArgumentParser(description='ASN for Cross-Domain Recommendation')
+parser.add_argument('--dataset_name', type=str, default='amazon1/nonoverlapping', help='domain path')
+parser.add_argument('--src_name', type=str, default='music', help='source domain')
+parser.add_argument('--tgt_name', type=str, default='cd', help='target domain')
+parser.add_argument('--lr', type=float, default=1e-3, help='learning rate')
+parser.add_argument('--reg', type=float, default=0.0001, help='weight decay')
+parser.add_argument('--batch_size', type=int, default=1024, help='batch size')
+parser.add_argument('--epochs', type=int, default=300, help='epochs')
+parser.add_argument('--dropout', type=float, default=0.5,
+                    help='Dropout rate (1 - keep probability).')
+parser.add_argument('--cuda', type=int, default=0, help='cuda id')
+parser.add_argument('--diff',type=float, default=0.000001,help='loss coefficient')
+parser.add_argument('--recon',type=float, default=0.1,help='loss coefficient')
+parser.add_argument('--domain',type=float, default=0.5,help='loss coefficient')
+parser.add_argument('--repeat', type=int, default=1,help='repeat trainging times')
+parser.add_argument('--which_model', type=str, help='flag in command to note which model you are running')
+
+args = parser.parse_args()
+
+if 'amazon1' in args.dataset_name:
+    hidden_dim1 = 8
+    hidden_dim2 = 8
+    num_gcn_layers = 2
+    is_bipart_graph = 1  # 区分图是否为二部图，这会影响模型内部结构
+
+elif 'citation' in args.dataset_name:
+    hidden_dim1 = 128
+    hidden_dim2 = 16
+    num_gcn_layers = 2
+    is_bipart_graph = 0  # 区分图是否为二部图，这会影响模型内部结构
+
+
+logfile = args.dataset_name.replace('/','-')+'-'+args.src_name+'-'+args.tgt_name+'.log'
+with open(logfile, 'a+') as f:
+    f.write("{0:%Y-%m-%d  %H-%M-%S/}\n".format(datetime.now()))
+
+if __name__ == '__main__':
+    args.device = torch.device("cuda:{}".format(args.cuda) if (torch.cuda.is_available() and args.cuda>=0) else "cpu")
+    print(args.device)
+    src = dataloader('lp','pyg',args.dataset_name,args.src_name)[0].to(args.device)
+    tgt = dataloader('lp','pyg',args.dataset_name,args.tgt_name)[0].to(args.device)
+    test_dict_ds, test_input_dict_ds = src.test_dict, src.test_input_dict
+    if is_bipart_graph:
+        num_user_ds, num_item_ds = src.num_user,src.num_item
+    else:
+        num_user_ds, num_item_ds = src.num_node, src.num_node
+    train_data_ds, adj_s, feats_s = src.data, src.edge_index, src.x
+    test_dict_dt, test_input_dict_dt = tgt.test_dict, tgt.test_input_dict
+    if is_bipart_graph:
+        num_user_dt, num_item_dt = tgt.num_user,tgt.num_item
+    else:
+        num_user_dt, num_item_dt = tgt.num_node, tgt.num_node
+    train_data_dt, adj_t, feats_t = tgt.data, tgt.edge_index, tgt.x
+    coeff = {"diff":args.diff, "recon":args.recon, "domain":args.domain}
+    avg_hits_list = []
+    avg_mrr_list = []
+    avg_ndcg_list = []
+
+    for rep_times in range(args.repeat):
+        model = ASN_LP(input_feat_dim=feats_s.shape[1], hidden_dim1=hidden_dim1, hidden_dim2=hidden_dim2, dropout=args.dropout, coeff=coeff,device=args.device, is_bipart_graph=is_bipart_graph).to(args.device)
+        optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.reg)
+        print(f"Repeat:{rep_times} Start training ASN for cross-network link prediction on {args.dataset_name}, task:{args.src_name}->{args.tgt_name}")
+        best_hits = 0.
+        best_mrr = 0.
+        best_ndcg = 0.
+        for epoch in range(1, 1+args.epochs):
+            model.train()
+            permutation = torch.randperm(train_data_dt.shape[0])
+            max_idx = int((len(permutation) // (args.batch_size / 2) - 1) * (args.batch_size / 2))
+            print(max_idx/args.batch_size)
+            loss = 0.
+            for batch in range(0, max_idx, args.batch_size):
+                optimizer.zero_grad()
+                idx = permutation[batch: batch + args.batch_size]
+                idx_s = np.random.choice(train_data_ds.shape[0], args.batch_size)
+                # 采取的模式是train随机采样，test需要按照batch依次选取
+                # train_data_s 和 train_data格式是一致的，train_data就是目标域，是测试集
+                loss = model(train_data_ds[idx_s, :], train_data_dt[idx], num_user_ds, num_item_ds, num_user_dt, num_item_dt, adj_s, adj_t, feats_s, feats_t)
+                loss.backward()
+                optimizer.step()
+
+            if epoch % 1 == 0:
+                model.eval()
+                print("epoch {} loss: {:.4f}".format(epoch, loss))
+                # 显存不足所以用cpu测试
+                r = evaluate_test_at_k(model, test_dict_dt, test_input_dict_dt, k=10)
+                best_hits = r['hits'] if r['hits']>best_hits else best_hits
+                best_mrr = r['mrr'] if r['mrr']>best_mrr else best_mrr
+                best_ndcg = r['ndcg'] if r['ndcg']>best_ndcg else best_ndcg
+
+                with open(logfile,'a+') as f:
+                    f.write(f"Epoch {epoch}: loss:{loss},hits:{r['hits']},mrr:{r['mrr']},ndcg:{r['ndcg']},best_hits:{best_hits},best_mrr:{best_mrr},best_ndcg:{best_ndcg}\n")
+        print("Results:")
+        model.eval()
+        _ = evaluate_test_at_k(model, test_dict_dt, test_input_dict_dt, k=10)
+        print(f"best Hits:{best_hits}, best MRR:{best_mrr}, best NDCG:{best_ndcg}")
+
+        avg_hits_list.append(best_hits)
+        avg_mrr_list.append(best_mrr)
+        avg_ndcg_list.append(best_ndcg)
+
+    avg_hits = sum(avg_hits_list)/args.repeat
+    avg_mrr = sum(avg_mrr_list)/args.repeat
+    avg_ndcg = sum(avg_ndcg_list)/args.repeat
+    with open(logfile,'a+') as f:
+        f.write(f"FINAL Avg hits:{avg_hits}, Avg mrr:{avg_mrr}, Avg ndcg:{avg_ndcg}\n")
