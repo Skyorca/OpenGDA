@@ -1,6 +1,6 @@
 import numpy as np
 import torch
-from sklearn.metrics import f1_score
+from sklearn.metrics import f1_score, accuracy_score
 
 
 def precision_at_k(r, k):
@@ -156,3 +156,9 @@ def f1(**kwargs):
     for average in averages:
         results[average] = f1_score(y_true=torch.argmax(y_true,1).cpu().numpy(), y_pred=torch.argmax(y_pred,1).cpu().numpy(), average=average)
     return results['micro'], results['macro']
+
+def acc(**kwargs):
+    y_true = kwargs['y_true']
+    y_pred = kwargs['y_pred']
+    metric = accuracy_score(y_true=torch.argmax(y_true.cpu(), dim=1), y_pred=torch.argmax(y_pred, dim=1))
+    return metric

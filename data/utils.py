@@ -8,7 +8,51 @@ from torch_geometric.data import Data
 import os
 import os.path as osp
 import glob
+import scipy.sparse as sp
 
+
+
+def MyScaleSimMat(W):
+    '''L1 row norm of a matrix'''
+    rowsum = np.array(np.sum(W, axis=1), dtype=np.float32)
+    r_inv = np.power(rowsum, -1).flatten()
+    r_inv[np.isinf(r_inv)] = 0.
+    r_mat_inv = sp.diags(r_inv)
+    W = r_mat_inv.dot(W)
+    return W
+
+def AggTranProbMat(G, step):
+    '''aggregated K-step transition probality'''
+    G = MyScaleSimMat(G)
+    G = sp.csc_matrix.toarray(G)
+    A_k = G
+    A = G
+    for k in np.arange(2, step + 1):
+        A_k = np.matmul(A_k, G)
+        A = A + A_k / k
+    return A
+
+def ComputePPMI(A):
+    '''compute PPMI, given aggregated K-step transition probality matrix as input'''
+    np.fill_diagonal(A, 0)
+    A = MyScaleSimMat(A)
+    (p, q) = np.shape(A)
+    col = np.sum(A, axis=0)
+    col[col == 0] = 1
+    PPMI = np.log((float(p) * A) / col[None, :])
+    IdxNan = np.isnan(PPMI)
+    PPMI[IdxNan] = 0
+    PPMI[PPMI < 0] = 0
+    return PPMI
+
+def normalize(mx):
+    """Row-normalize sparse matrix"""
+    rowsum = np.array(mx.sum(1), dtype=np.float32)
+    r_inv = np.power(rowsum, -1).flatten()
+    r_inv[np.isinf(r_inv)] = 0.
+    r_mat_inv = sp.diags(r_inv)
+    mx = r_mat_inv.dot(mx)
+    return mx
 
 def sparse_mx_to_torch_sparse_tensor(sparse_mx):
     """Convert a scipy sparse matrix to a torch sparse tensor."""
@@ -40,6 +84,7 @@ def read_tu_data(folder, prefix):
     batch = read_file(folder, prefix, 'graph_indicator', torch.long) - 1
 
     node_attributes = node_labels = None
+    # We modify the code to inject node attributes
     node_attributes = torch.load(f"{folder}/{prefix}_node_attributes.pt")
     if 'node_labels' in names:
         node_labels = read_file(folder, prefix, 'node_labels', torch.long)

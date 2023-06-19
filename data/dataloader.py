@@ -2,7 +2,7 @@ import sys
 sys.path.append('..')
 from data.gc_dataloader import dataloader_gc
 from data.lp_dataloader import dataloader_lp
-
+from data.nc_dataloader import dataloader_nc
 
 
 def dataloader(task_type, model_name, dataset_name, collection_name, device="cpu"):
@@ -10,7 +10,7 @@ def dataloader(task_type, model_name, dataset_name, collection_name, device="cpu
         print("Task type should in ['nc','lp','gc']")
         raise NotImplementedError
     if task_type=='nc':
-        pass
+        return dataloader_nc(model_name, dataset_name, collection_name, device)
     elif task_type=="lp":
         return dataloader_lp(model_name, dataset_name, collection_name, device)
     elif task_type=="gc":

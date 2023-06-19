@@ -13,7 +13,7 @@ class PPMIConv(CachedGCNConv):
 
     def __init__(self, in_channels, out_channels,
                  weight=None, bias=None, improved=False, use_bias=True,
-                 path_len=5,device='cpu',
+                 path_len=3,device='cpu',
                  **kwargs):
         super().__init__(in_channels, out_channels, weight, bias, improved, use_bias, **kwargs)
         self.path_len = path_len
@@ -104,7 +104,6 @@ class PPMIConv(CachedGCNConv):
         edge_index = torch.tensor(new_edge_index).t().to(self.device)
         edge_weight = torch.tensor(edge_weight).to(self.device)
 
-
         fill_value = 1. if not improved else 2.
         edge_index, edge_weight = add_remaining_self_loops(
             edge_index, edge_weight, fill_value, num_nodes)
@@ -112,8 +111,9 @@ class PPMIConv(CachedGCNConv):
         row, col = edge_index
         deg = scatter_add(edge_weight, row, dim=0, dim_size=num_nodes)
         deg_inv_sqrt = deg.pow(-0.5)
+        # Note: modify here, set nan to 0
+        deg_inv_sqrt[deg_inv_sqrt != deg_inv_sqrt] = 0
         deg_inv_sqrt[deg_inv_sqrt == float('inf')] = 0
-
         return edge_index, (deg_inv_sqrt[row] * edge_weight * deg_inv_sqrt[col]).type(torch.float32)
 
 
