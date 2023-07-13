@@ -41,7 +41,7 @@ Other related packages you can find in the `requirements.txt`
 
 :fireworks:Currently we provide **Airport** dataset as it is relatively small, other datasets please refer to their original studies, and we will provide a copy on cloud drive asap.
 
-:bangbang: For instructions to data resources, please refer to [node-level](data\nc\resource_instructions.md)
+:bangbang: For instructions to data resources, please refer to [node-level](https://github.com/Skyorca/OpenGDA/blob/master/data/nc/resource_instructions.md)
 
 :sun_with_face:To run a model, like ASN, you need to change your path to `\model\ASN`, and run it with:
 
@@ -51,13 +51,13 @@ For command line args, please refer to `start_nc.py` for more details.
 
 ##### Edge-level tasks
 
-:bangbang: For instructions to data resources, please refer to [edge-level](data\lp\resource_instructions.md)
+:bangbang: For instructions to data resources, please refer to [edge-level](https://github.com/Skyorca/OpenGDA/blob/master/data/lp/resource%20instructions.md)
 
 ##### Graph-level tasks
 
 :fireworks:Currently we provide **LetterHigh-LetterLow**  dataset as it is relatively small, other datasets please refer to their original studies, and we will provide a copy on cloud drive asap.
 
-:bangbang: For instructions to data resources, please refer to [graph-level](data\gc\resource_instructions.md)
+:bangbang: For instructions to data resources, please refer to [graph-level](https://github.com/Skyorca/OpenGDA/blob/master/data/gc/resource%20instructions.md)
 
 :sun_with_face:To run a model, like GRADE, you need to change your path to `\model\GRADE`, and run it with:
 
