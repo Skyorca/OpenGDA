@@ -4,6 +4,10 @@
 
 :milky_way::milky_way: Currently our paper is under review at conference. Once the result comes, we will push the article to Arxiv. :milky_way::milky_way:
 
+<img src="https://github.com/Skyorca/OpenGDA/blob/master/img/logo.PNG" alt="logo" style="zoom:20%;" />
+
+
+
 #### What is OpenGDA?
 
 OpenGDA is a benchmark which integrates 1) datasets for evaluating diverse cross-network learning tasks and 2) state-of-the-art graph domain adaptation models. 
