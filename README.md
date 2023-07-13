@@ -1,13 +1,18 @@
 ### :star2:OpenGDA: Graph Domain Adaptation Benchmark for Cross-network Learning :star2:
 
-:seedling: :seedling: Currently we are building this project with more models and datasets.:seedling::seedling:  
+:seedling: :seedling: Currently we are building this project with more models and datasets.​ ​W​e​ welcome your questions and suggestions.:seedling::seedling:  
+
+:milky_way::milky_way: Currently our paper is under review at conference. Once the result comes, we will push the article to Arxiv. :milky_way::milky_way:
 
 #### What is OpenGDA?
 
 OpenGDA is a benchmark which integrates 1) datasets for evaluating diverse cross-network learning tasks and 2) state-of-the-art graph domain adaptation models. 
 
 - **cross-network learning task:**  To alleviate the lack of high-quality labels and the sparse graph structure, reseachers build cross-network learning task by introducing relevent source graphs to transfer labeling and structural knowledge to target graphs. The goal of cross-network learning task is improving task performance on target graphs by transferring knowledge from source graphs.
+
 - **graph domain adaptation:** Researchers improve domain adaptation techinique by taking the properties of structured graph data into account.
+
+  ![Graph Domain Adaptation](https://github.com/Skyorca/OpenGDA/blob/master/img/graph_domain_adaptation.jpg)
 
 #### Why establish OpenGDA?
 
@@ -36,6 +41,14 @@ We mainly require `pytorch` as neural network framework and `torch-geometric` as
 Other related packages you can find in the `requirements.txt`
 
 ##### WorkFlow
+
+OpenGDA framework is shown below:
+
+![Framework](https://github.com/Skyorca/OpenGDA/blob/master/img/framework.jpg)
+
+OpenGDA workflow is shown below:
+
+![Workflow](https://github.com/Skyorca/OpenGDA/blob/master/img/workflow.jpg)
 
 ##### Node-level tasks
 
