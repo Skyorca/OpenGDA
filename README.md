@@ -2,11 +2,14 @@
 
 :seedling: :seedling: Currently we are building this project with more models and datasets.​ ​W​e​ welcome your questions and suggestions.:seedling::seedling:  
 
-:milky_way::milky_way: Currently our paper is under review at conference. Once the result comes, we will push the article to Arxiv. :milky_way::milky_way:
+:milky_way::milky_way: Our paper has been accepted by CIKM'23 as resource paper: Boshen Shi, Yongqing Wang, Fangda Guo, Jiangli Shao, Huawei Shen,
+and Xueqi Cheng. 2023. OpenGDA: Graph Domain Adaptation Benchmark
+for Cross-network Learning. In Proceedings of the 32nd ACM International
+Conference on Information and Knowledge Management (CIKM ’23), Octo-
+ber 21–25, 2023, Birmingham, United Kingdom. ACM, New York, NY, USA,
+5 pages. https://doi.org/10. :milky_way::milky_way:
 
-<img src="https://github.com/Skyorca/OpenGDA/blob/master/img/logo.PNG" alt="logo" style="zoom:20%;" />
-
-
+<img src="https://github.com/Skyorca/OpenGDA/blob/master/img/logo.PNG" alt="logo" style="zoom:10%;" />
 
 #### What is OpenGDA?
 
